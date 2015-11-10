@@ -10,7 +10,7 @@ author: PCM
 date: 08-11-2015
 
 
-Primary question of intrest
+Primary question of interest
 ========================================================
 <small><small>
 - Is it possible to predict the average of stars a business will obtain by taking into account previous values ? 
@@ -19,23 +19,26 @@ Primary question of intrest
 
 - This is interesting for businesses because a high correlation of evaluations would imply consistency in the aggregation of user activity across time. 
 
-- Hence, if a particular business experiences big increases or decreases, Yelp can help by highlighting problems to address or opportunities to explore.
+- Hence, if a particular business experiences big increases or decreases, Yelp can highlighting problems or opportunities.
+
+- Influencers can be targeted by businesses to attract other users.
 </small></small>
 
 Methodology used
 ========================================================
-<small><small>- I had to join the tables by commnon fileds (see blue lines)
+<small><small>- I had to join the tables by common fields (see blue lines)
 ![alt text](InitialTableLink.png)
 - Then I created a new table to reply the question
 ![alt text](newformat.png) 
-- I removed the variables that were creating confusion 
-- I pre-run some models by checking prediction accuracy (first witouth considering influencer)
-- I decide to reduce to only influential reviews because of the disapointing results
+- I removed the variables that were creating confusion (highly related)
+- I pre-run some models by checking prediction accuracy (first without considering influencer)
+- I decide to reduce to only influential reviews because of low prediction accuracy. 
 ***
  
-- The algorithm to predict was average stars based on -> previous and current minimum, maximun values, check ins and counts 
+- Influencers are reviews or users that can attract others (voted useful/lots of fans)
+- The algorithm to predict was average stars based on -> previous and current minimum, maximum values, check ins and counts 
 - I trained the data by using 70% of the records as training set and the rest as test
-- I used 3 different methods to obtaine the reulsts (accuracy). See table:
+- I used 3 different methods to obtain the results (accuracy). See table:
 ![alt text](AccuracyAfter.png)
 - In the conclusion I show the confusion matrix when using random forest.
 
@@ -44,18 +47,18 @@ Methodology used
 
 </small></small>
 
-Results - Prediction accuray of model 
+Results - Prediction accuracy of model 
 ========================================================
 <small><small>
 
-The following plot/table shows the Confusion Maxtrix obtained after applying the random forest model to the influential reviews
+The following plot/table shows the Confusion Matrix obtained after applying the random forest model to the influential reviews
 And we can see an accuracy of prediction of 89%
 
 ![alt text](Confusionmatrixlast.png)
 
 ***
 
-The model predicts the reviews in 5 classes. And each of them represents the number of stars in the reviews.
+The model predicts the reviews in 5 classes. And each of them represents the rounded average number of stars in the reviews.
 
 From this matrix we can see that our classifier correctly identified (sensitivity or true positive) the number of stars by 100%, 83%, 78%, 96% and 81% of the times respectively. 
 
@@ -65,11 +68,11 @@ On the other hand, when we shouldn't have predicted a number of stars we didn't 
 
 
 
-Concusion - Answer to the primary question
+Conclusion - Answer to the primary question
 ====================================
 <small><small><small>
 
-The results indicate that the previous averag of starts, maximun and minimun and number given by influential users is closely related to the average of stars for the year under investigation.
+The results indicate that the previous average of starts, maximum and minimum and number given by influential users is closely related to the average of stars for the year under investigation.
 
 The primary question of interest was answered by the model. So we can conclude that I can predict with almost 90% of accuracy.
 
