@@ -1,0 +1,496 @@
+---
+
+css: styles.css
+output: word_document
+---
+![alt text](C:\Users\Pablo\Desktop\capstone\images\yelp.png)
+
+
+## 1.Title: Data Science Capstone - Yelp Final Project 
+Yelp is a company that connects people with business via users reviews or recommendations that those users made of the different business and that other users can read and consequently decide to visit or purchase.
+I personally decide to buy/visit a business based on the number reviews and average stars granted by previous users. I only read a reviews in case the first 2 criteria are met (enough number of reviews and more than 3,5 stars). This will normally lead to another review (mine) with similar number of stars if the review was adequate. Of course there are other criteria (like how close the business is to where I am or the type of specialization) but this is dependent on each user's situation.
+My project is to determine how strong is the relationship between previous reviews and next reviews (is my hypothesis/experience of cause effect demonstrated by the data provide by Yelp?)
+
+## 2. Introduction
+Primary question and the rationale for studying it
+Is it possible to predict the average of stars a business will obtain by taking into account previous values ? Would this change if I consider only influential users or reviews ? 
+This is interesting for businesses because a high correlation of evaluations would imply consistency in the aggregation of user activity across time. 
+Therefore, if a particular business experiences big increases or decreases, Yelp can help by highlighting problems to address or opportunities to explore.
+
+## 3.Methods and data
+
+How I used the data and the type of analytic methods
+
+### 3.1 Exploratory data analysis (plots, summary tables) presented that interrogates the question of interest?
+
+Yelp provided a set of data that would help this analysis
+The data provided by Yelp was 5 files in json format. Namely: reviews; users; business; checkins and tips. 
+I read the data and coverted it by unflattening it.
+```{r eval=FALSE, echo=FALSE}
+
+##### install packages (run only if necessary)
+install.packages("jsonlite")
+install.packages("reshape")
+install.packages("caret")
+
+
+## First I need to define the working directory and install the necessary packages (modify accordingly)
+setwd("C:/Users/Pablo/Desktop/capstone/yelp_dataset_challenge_academic_dataset")
+library(jsonlite)
+library(reshape)
+library(caret)
+
+
+##I need to read the 5 json files that I will use. 
+json_file <- "yelp_academic_dataset_review.json"
+review_unflatten<- fromJSON(sprintf("[%s]", paste(readLines(json_file), collapse=",")))
+review<- flatten(review_unflatten)
+
+json_file <- "yelp_academic_dataset_user.json"
+user_unflatten <- fromJSON(sprintf("[%s]", paste(readLines(json_file), collapse=",")))
+user<- flatten(user_unflatten)
+
+json_file <- "yelp_academic_dataset_business.json"
+business_unflatten <- fromJSON(sprintf("[%s]", paste(readLines(json_file), collapse=",")))
+business <- flatten(business_unflatten)
+
+json_file <- "yelp_academic_dataset_tip.json"
+tip_unflatten <- fromJSON(sprintf("[%s]", paste(readLines(json_file), collapse=",")))
+tip<- flatten(tip_unflatten)
+
+json_file <- "yelp_academic_dataset_checkin.json"
+checkin_unflatten <- fromJSON(sprintf("[%s]", paste(readLines(json_file), collapse=",")))
+checkin<- flatten(checkin_unflatten)
+
+##remove unused variable to save memory space
+rm(review_unflatten, user_unflatten, business_unflatten, tip_unflatten, checkin_unflatten)
+
+```
+
+I discovered the following files and number of records: 1.569.264 reviews; 366.715 users; 61.184 business; 45.116 checkins and 495.107 tips.
+After exploring the original data, I decided to take for my analysis only the relevant fields of each table .
+```{r eval=FALSE, echo=FALSE}
+##I select only the relevant columns. Hence I convert them into a lite version 
+review_lite<-review[,c(1,2,3,4,7,9)]
+user_lite<-user[,c(1,2,3,4,6,7,11,17)]
+business_lite<-business[,c(1,2,4,5,6,9,11,12)]
+tip_lite<-tip[,c(1,3,4,5,6)]
+```
+In the case of checkin I just added up the numerous values into a single total by business by adding up all the columns from 3 to 170 and putting it in a new column(171)
+```{r eval=FALSE, echo=FALSE}
+#### for checkin I add all the columns
+checkin_lite<-transform(checkin, sum=rowSums(checkin[c(3:170)], na.rm = TRUE))
+checkin_lite<-checkin_lite[,c(2,171)]
+names(checkin_lite)[names(checkin_lite)=="sum"] <- "count.checkin"
+
+##remove unused variable to save memory space
+rm(review, user, business, tip, checkin)
+
+### One of the columns in business file is of type list, so the data.frame is no longer 2-dimensional and can't be exported to a 2d csv-file.
+## I will coerce them
+business_lite.df <- data.frame(lapply(business_lite, as.character), stringsAsFactors=FALSE)
+
+### I will store them as csv files
+write.csv(business_lite.df, file = "business.csv", row.names = FALSE)
+write.csv(review_lite, file = "review.csv", row.names = FALSE)
+write.csv(user_lite, file = "user.csv", row.names = FALSE)
+write.csv(tip_lite, file = "tip.csv", row.names = FALSE)
+write.csv(checkin_lite, file = "checkin.csv", row.names = FALSE)
+
+### removal of new variables to make space in memory
+rm(review_lite, user_lite, business_lite, business_lite.df, tip_lite, checkin_lite)
+
+
+#### I create a file with the tips by year
+count_tip_by_year_business<-aggregate(type ~substring(date,1,4)+business_id, data = tip, FUN=length)
+names(count_tip_by_year_business)[names(count_tip_by_year_business)=="substring(date, 1, 4)"] <- "year"
+
+##################################################################
+### I take into account influential and NOT !!!!
+##################################################################
+
+review<-read.csv("review.csv")
+user<-read.csv("user.csv")
+business<-read.csv("business.csv")
+tip<-read.csv("tip.csv")
+checkin<-read.csv("checkin.csv")
+count_tip_by_year_business<-read.csv("count_tip_by_year_business.csv")
+####rm(business_lite, business_lite.df, review_lite, user_lite, tip_lite, checkin_lite)
+```
+Then I linked the data files together by using the common fields. In order to do it I had to link the different tables by the field highlighted in blue  (e.g. user_id for review and user and business_di for business and review).
+Please see the following graphic:
+![alt text](C:\Users\Pablo\Desktop\capstone\images\initialtablelink.png)
+```{r eval=FALSE, echo=FALSE}
+### Merging the files
+joined.file <- merge(review,user, by="user_id")
+joined_final <- merge(joined.file,business, by="business_id") 
+```
+Considering that my analysis is trying to determine the impact of time on the number and average of stars, I had to transform the data into the following format:
+![alt text](C:\Users\Pablo\Desktop\capstone\images\newformat.png)
+
+When we merge the data we do only a left join, 
+This will remove those records where we have reviews for one year but not for the next or viceversa, the rationale for this is that the business that do not have consecutive years reviews will not qualify for this study and introduce noise to review given their new values after conversion.
+Therefore the total population to analyze is 10.446 businesses with their reviews, tips and checkins. 
+
+```{r eval=FALSE, echo=FALSE}
+
+count_checkin_by_year_business<-checkin
+
+count_tip_by_year_business<-aggregate(type ~substring(date,1,4)+business_id, data = tip, FUN=length)
+
+average_star_by_year_business<-aggregate(stars.x ~substring(date,1,4)+business_id, data = joined_final, FUN=mean)
+max_star_by_year_business<-aggregate(stars.x ~substring(date,1,4)+business_id, data = joined_final, FUN=max)
+min_star_by_year_business<-aggregate(stars.x ~substring(date,1,4)+business_id, data = joined_final, FUN=min)
+count_star_by_year_business<-aggregate(stars.x ~substring(date,1,4)+business_id, data = joined_final, FUN=length)
+
+names(count_tip_by_year_business)[names(count_tip_by_year_business)=="substring(date, 1, 4)"] <- "year"
+names(count_star_by_year_business)[names(count_star_by_year_business)=="substring(date, 1, 4)"] <- "year"
+names(min_star_by_year_business)[names(min_star_by_year_business)=="substring(date, 1, 4)"] <- "year"
+names(max_star_by_year_business)[names(max_star_by_year_business)=="substring(date, 1, 4)"] <- "year"
+names(average_star_by_year_business)[names(average_star_by_year_business)=="substring(date, 1, 4)"] <- "year"
+
+names(count_tip_by_year_business)[names(count_tip_by_year_business)=="type"] <- "count.tip" 
+names(count_star_by_year_business)[names(count_star_by_year_business)=="stars.x"] <- "count"
+names(min_star_by_year_business)[names(min_star_by_year_business)=="stars.x"] <- "min"
+names(max_star_by_year_business)[names(max_star_by_year_business)=="stars.x"] <- "max"
+names(average_star_by_year_business)[names(average_star_by_year_business)=="stars.x"] <- "average"
+
+join1.file <- merge(count_star_by_year_business,min_star_by_year_business, by=c("business_id", "year"))
+join2.file <- merge(join1.file,max_star_by_year_business, by=c("business_id", "year"))
+join <- merge(join2.file,average_star_by_year_business, by=c("business_id", "year"))
+
+year2012<-join[join$year=='2012', ]
+names(year2012)[names(year2012)=="count"] <- "count.2012"
+names(year2012)[names(year2012)=="min"] <- "min.2012"
+names(year2012)[names(year2012)=="max"] <- "max.2012"
+names(year2012)[names(year2012)=="average"] <- "average.2012"
+
+year2013<-join[join$year=='2013', ]
+names(year2013)[names(year2013)=="count"] <- "count.2013"
+names(year2013)[names(year2013)=="min"] <- "min.2013"
+names(year2013)[names(year2013)=="max"] <- "max.2013"
+names(year2013)[names(year2013)=="average"] <- "average.2013"
+
+year2014<-join[join$year=='2014', ]
+names(year2014)[names(year2014)=="count"] <- "count.2014"
+names(year2014)[names(year2014)=="min"] <- "min.2014"
+names(year2014)[names(year2014)=="max"] <- "max.2014"
+names(year2014)[names(year2014)=="average"] <- "average.2014"
+
+years.1 <- merge(year2014,year2013, by=c("business_id"))
+years.2 <- merge(years.1,year2012, by=c("business_id"))
+names(years.2)[names(years.2)=="year.x"] <- "year."
+names(years.2)[names(years.2)=="year.y"] <- "year.."
+###years.3 <- merge(years.2,year2012, by=c("business_id"))
+
+years.2$r.average.2012<-NA
+years.2$r.average.2013<-NA
+years.2$r.average.2014<-NA
+
+years.2$r.average.2012<-round(years.2$average.2012,0)
+years.2$r.average.2013<-round(years.2$average.2013,0)
+years.2$r.average.2014<-round(years.2$average.2014,0)
+
+#### I join with checkin
+join4 <- merge(years.2,checkin, by=c("business_id"))
+
+#### I create a file with the tips by year
+#### count_tip_by_year_business<-aggregate(type ~substring(date,1,4)+business_id, data = tip, FUN=length)
+names(count_tip_by_year_business)[names(count_tip_by_year_business)=="substring(date, 1, 4)"] <- "year"
+tip2012<-count_tip_by_year_business[count_tip_by_year_business$year=='2012', ]
+names(tip2012)[names(tip2012)=="count.tip"] <- "tip.2012"
+tip2013<-count_tip_by_year_business[count_tip_by_year_business$year=='2013', ]
+names(tip2013)[names(tip2013)=="count.tip"] <- "tip.2013"
+tip2014<-count_tip_by_year_business[count_tip_by_year_business$year=='2014', ]
+names(tip2014)[names(tip2014)=="count.tip"] <- "tip.2014"
+
+### join with tips
+years.8 <- merge(join4,tip2012, by=c("business_id"))
+years.9 <- merge(years.8,tip2013, by=c("business_id"))
+names(years.9)[names(years.9)=="year.x"] <- "year...."
+names(years.9)[names(years.9)=="year.y"] <- "year....."
+years.10 <- merge(years.9,tip2014, by=c("business_id"))
+### I order the file
+years.2<-years.10[,c(4,5,8,9,10,13,14,15,17,18,20,22,24,26,3,19)]
+```
+By analyzing the data I see patterns that indicate that year 2015 is not a full year, hence I decided not to use this year in my analysis to avoid comparing years of 12 months with unfinished years.
+
+Finally I plotted the relationship between the most interesting fields (variables) of my resulting table, obtaining the following plot that indicates some (not too clear but somewhat latent) relationships between the maximum and minimum values of the year and the average. Indicating that the average is predicted mostly by these 2 values. I decided therefor to use average.2014 as the variable I want to predict that I can extrapolate then to future years. 
+```{r eval=FALSE, echo=FALSE}
+plot(years.2[,c(4,5,6,7,8,9,10)])
+```
+
+![alt text](C:\Users\Pablo\Desktop\capstone\images\ScatterPlotDataInitialRelations.png)
+
+### 3.2 Was the (or multiple) statistical model, prediction algorithm or statistical inference described in the methods section?
+I predicted the average of stars 
+My initial model was that I could predict the average of stars a business would receive in 2014 (average.2014) by the following 15 variables: count.2014 + min.2014 + max.2014 + count.2013 + min.2013 + max.2013 + average.2013 + count.2012 + min.2012 + max.2012 + average.2012 + count.chicken + tip.2012 + tip.2013 + tip.2014 
+
+However, before testing the model I had to remove the correlated variables that introduce noise to the model. So I used the function correlationMatrix and I discovered that the variables count.2013, count.2012, tip.2012, tip.2013 and count.2014 were highly correlated. Therefore I removed them from this model.
+```{r eval=FALSE, echo=FALSE}
+
+## calculate correlation matrix
+set.seed(1234)
+correlationMatrix <- cor(years.2[,1:15])
+## summarize the correlation matrix
+print(correlationMatrix)
+## find attributes that are highly corrected (ideally >0.75)
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.5)
+## print indexes of highly correlated attributes
+print(highlyCorrelated)
+## this results in the following highly correlated variables 3 13 15 12
+years.22<-years.2[,c(1,2,4,5,6,7,8,9,10,11,14,16)]
+```
+
+I partitioned the data into testing of 75% of the businesses and training of 25%
+```{r eval=FALSE, echo=FALSE}
+inTrain<-createDataPartition(y=years.22$r.average.2014, p=0.75, list=FALSE)
+training<-years.22[inTrain,]
+testing<-years.22[-inTrain,]
+```
+
+I tweaked the data of averages to make them only rounded number (integers), This will make the varialbe as categoritcal and it will allow me to have less intermediate values and use a very clear confusion matrix.
+
+For the prediction I used the the following statistical models
+
+![alt text](C:\Users\Pablo\Desktop\capstone\images\AccuracyBefore.png)
+
+```{r eval=FALSE, echo=FALSE}
+#### 1 method linear
+modelFit<-train(r.average.2014 ~ .,data=training,method="glm")
+predictions<-predict(modelFit,newdata=testing)
+predictions2<-round(predictions)
+confusionMatrix(round(predictions,0),testing$r.average.2014)
+
+#### 2 method rpart
+modelFit<-train(r.average.2014 ~ .,data=training,method="rpart")
+predictions<-predict(modelFit,newdata=testing)
+predictions2<-round(predictions)
+confusionMatrix(round(predictions,0),testing$r.average.2014)
+
+
+#### 3 method random forest
+modelFit<-train(r.average.2014 ~ .,data=training,method="rf")
+predictions<-predict(modelFit,newdata=testing)
+predictions2<-round(predictions)
+predictions<-predict(modelFit,newdata=testing)
+confusionMatrix(round(predictions,0),testing$r.average.2014)
+
+```
+
+Given that the model was not giving great values of prediction, I applied bootstrapping (*) to improve the values, however, they still remain rather low and with very small increases. 
+
+Then I came to the conclusion that I should modify the population to those users that are more influential and only consider influential reviews.
+```{r eval=FALSE, echo=FALSE}
+##################################################################
+### I take into account ONLY influential 
+##################################################################
+##################################################################
+
+setwd("C:/Users/Pablo/Desktop/capstone/yelp_dataset_challenge_academic_dataset")
+review<-read.csv("review.csv")
+user<-read.csv("user.csv")
+business<-read.csv("business.csv")
+tip<-read.csv("tip.csv")
+checkin<-read.csv("checkin.csv")
+count_tip_by_year_business<-read.csv("count_tip_by_year_business.csv")
+
+library(jsonlite)
+library(reshape)
+library(caret)
+
+
+
+#####rm(business_lite, business_lite.df, review_lite, user_lite, tip_lite, checkin_lite)
+
+```
+
+In the case of reviews we will consider influential only those that had a votes.useful >=1 that means that the review was taken into account by at least another user to make decisions hence this other user influenced at least another one. Furthermore, if the qualification of useful review was given by the next user after he purchased or visit the business, there are strong chances that he agreed with the first reviewer. The fans, as per my theory will also have a strong tendency to agree and hence have the same number of stars
+The users will be more influential if they have more fans and if they have more votes useful. We will therefore only consider the reviews of those users with fans>=5 and votes.useful>1
+The disadvantage is that this will reduce the number of records to consider, however these remaining records are more relevant at the time of influencing other users to buy or visit and perhaps also the average of future reviews.
+
+```{r eval=FALSE, echo=FALSE}
+review<-review[review$votes.useful >=1, ]
+user<-user[user$votes.useful >=1, ]
+user<-user[user$fans >=5, ]
+
+### Merging the files
+joined.file <- merge(review,user, by="user_id")
+joined_final <- merge(joined.file,business, by="business_id") 
+##################
+count_checkin_by_year_business<-checkin
+
+
+average_star_by_year_business<-aggregate(stars.x ~substring(date,1,4)+business_id, data = joined_final, FUN=mean)
+max_star_by_year_business<-aggregate(stars.x ~substring(date,1,4)+business_id, data = joined_final, FUN=max)
+min_star_by_year_business<-aggregate(stars.x ~substring(date,1,4)+business_id, data = joined_final, FUN=min)
+count_star_by_year_business<-aggregate(stars.x ~substring(date,1,4)+business_id, data = joined_final, FUN=length)
+
+names(count_tip_by_year_business)[names(count_tip_by_year_business)=="substring(date, 1, 4)"] <- "year"
+names(count_star_by_year_business)[names(count_star_by_year_business)=="substring(date, 1, 4)"] <- "year"
+names(min_star_by_year_business)[names(min_star_by_year_business)=="substring(date, 1, 4)"] <- "year"
+names(max_star_by_year_business)[names(max_star_by_year_business)=="substring(date, 1, 4)"] <- "year"
+names(average_star_by_year_business)[names(average_star_by_year_business)=="substring(date, 1, 4)"] <- "year"
+
+names(count_tip_by_year_business)[names(count_tip_by_year_business)=="type"] <- "count.tip" 
+names(count_star_by_year_business)[names(count_star_by_year_business)=="stars.x"] <- "count"
+names(min_star_by_year_business)[names(min_star_by_year_business)=="stars.x"] <- "min"
+names(max_star_by_year_business)[names(max_star_by_year_business)=="stars.x"] <- "max"
+names(average_star_by_year_business)[names(average_star_by_year_business)=="stars.x"] <- "average"
+
+join1.file <- merge(count_star_by_year_business,min_star_by_year_business, by=c("business_id", "year"))
+join2.file <- merge(join1.file,max_star_by_year_business, by=c("business_id", "year"))
+join <- merge(join2.file,average_star_by_year_business, by=c("business_id", "year"))
+
+
+year2012<-join[join$year=='2012', ]
+names(year2012)[names(year2012)=="count"] <- "count.2012"
+names(year2012)[names(year2012)=="min"] <- "min.2012"
+names(year2012)[names(year2012)=="max"] <- "max.2012"
+names(year2012)[names(year2012)=="average"] <- "average.2012"
+
+
+year2013<-join[join$year=='2013', ]
+names(year2013)[names(year2013)=="count"] <- "count.2013"
+names(year2013)[names(year2013)=="min"] <- "min.2013"
+names(year2013)[names(year2013)=="max"] <- "max.2013"
+names(year2013)[names(year2013)=="average"] <- "average.2013"
+
+year2014<-join[join$year=='2014', ]
+names(year2014)[names(year2014)=="count"] <- "count.2014"
+names(year2014)[names(year2014)=="min"] <- "min.2014"
+names(year2014)[names(year2014)=="max"] <- "max.2014"
+names(year2014)[names(year2014)=="average"] <- "average.2014"
+
+years.1 <- merge(year2014,year2013, by=c("business_id"))
+years.2 <- merge(years.1,year2012, by=c("business_id"))
+names(years.2)[names(years.2)=="year.x"] <- "year."
+years.2$r.average.2013<-NA
+years.2$r.average.2014<-NA
+
+years.2$r.average.2012<-round(years.2$average.2012,0)
+years.2$r.average.2013<-round(years.2$average.2013,0)
+years.2$r.average.2014<-round(years.2$average.2014,0)
+
+
+#### I join with checkin
+
+### i try now with the checkin 
+
+### i try now with the checkin 
+join4 <- merge(years.2,checkin, by=c("business_id"))
+
+#### I create a file with the tips by year
+tip2012<-count_tip_by_year_business[count_tip_by_year_business$year=='2012', ]
+names(tip2012)[names(tip2012)=="type"] <- "tip.2012"
+tip2013<-count_tip_by_year_business[count_tip_by_year_business$year=='2013', ]
+names(tip2013)[names(tip2013)=="type"] <- "tip.2013"
+tip2014<-count_tip_by_year_business[count_tip_by_year_business$year=='2014', ]
+names(tip2014)[names(tip2014)=="type"] <- "tip.2014"
+
+names(tip2014)[names(tip2014)=="year"] <- "year.2014"
+names(tip2013)[names(tip2013)=="year"] <- "year.2013"
+names(tip2012)[names(tip2012)=="year"] <- "year.2012"
+names(tip2013)[names(tip2013)=="count.tip"] <- "tip.2013"
+names(tip2014)[names(tip2014)=="count.tip"] <- "tip.2014"
+names(tip2012)[names(tip2012)=="count.tip"] <- "tip.2012"
+
+### join with tips
+
+years.8 <- merge(join4,tip2012, by=c("business_id"))
+years.9 <- merge(years.8,tip2013, by=c("business_id"))
+names(years.9)[names(years.9)=="year.x"] <- "year...."
+names(years.9)[names(years.9)=="year.y"] <- "year....."
+years.10 <- merge(years.9,tip2014, by=c("business_id"))
+
+years.2<-years.10[,c(4,5,8,9,10,13,14,15,17,18,20,22,24,26,3,19)]
+
+set.seed(1234)
+## calculate correlation matrix
+correlationMatrix <- cor(years.2[,1:15])
+## summarize the correlation matrix
+print(correlationMatrix)
+## find attributes that are highly corrected 
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.75)
+## print indexes of highly correlated attributes
+print(highlyCorrelated)
+
+## this results in the following highly correlated variables 3 13 15 12 6
+
+years.22<-years.2[,c(1,2,4,5,7,8,9,10,11,14,16)]
+
+######create training and testing
+inTrain<-createDataPartition(y=years.22$r.average.2014, p=0.75, list=FALSE)
+
+training<-years.22[inTrain,]
+
+testing<-years.22[-inTrain,]
+```
+I divide the data in training and testing records. 
+
+This approach reduces the number of records from 10.446 businesses to 4.772, however the consistency of the data should be more predictable if my hypothesis is right.
+I inspect again if I have values that have high correlation and I ended up removing almost the same fields.
+
+If I run the same but now with this influential data I obtain:
+
+![alt text](C:\Users\Pablo\Desktop\capstone\images\AccuracyAfter.png)
+
+```{r eval=FALSE, echo=FALSE}
+#### 1 method linear
+modelFit<-train(r.average.2014 ~ .,data=training,method="glm")
+predictions<-predict(modelFit,newdata=testing)
+predictions2<-round(predictions)
+predictions<-predict(modelFit,newdata=testing)
+confusionMatrix(round(predictions,0),testing$r.average.2014)
+
+#### 2 method rpart
+modelFit<-train(r.average.2014 ~ .,data=training,method="rpart")
+
+predictions<-predict(modelFit,newdata=testing)
+predictions2<-round(predictions)
+predictions<-predict(modelFit,newdata=testing)
+confusionMatrix(round(predictions,0),testing$r.average.2014)
+
+#### 3 method random forest
+modelFit<-train(r.average.2014 ~ .,data=training,method="rf")
+predictions<-predict(modelFit,newdata=testing)
+predictions2<-round(predictions)
+predictions<-predict(modelFit,newdata=testing)
+confusionMatrix(round(predictions,0),testing$r.average.2014)
+```
+
+## 4.Results
+
+
+
+The results indicate that the quantity of starts given by influential users and deemed as useful by at least another user is closely related to previous quantities of stars.
+
+The primary question of interest was answered by the model. So we can conclude that I can predict with almost 90% of accuracy the average quantity of starts a business will receive if I know in advance what is the number of stars, tips, check ins, minimum and maximum values obtained before.
+
+I produced the following confusion matrix to summarize the results of the model
+
+![alt text](C:\Users\Pablo\Desktop\capstone\images\Confusionmatrixlast.png)
+
+```{r eval=FALSE, echo=FALSE}
+#### 3 method random forest
+modelFit<-train(r.average.2014 ~ .,data=training,method="rf")
+predictions<-predict(modelFit,newdata=testing)
+predictions2<-round(predictions)
+predictions<-predict(modelFit,newdata=testing)
+confusionMatrix(round(predictions,0),testing$r.average.2014)
+```
+
+Throught the analysis of the data and the model, I conclude that the accuracy obtained is a bit bigger than 89% with a p-value of 2.2 x 10^-16, therefore the classifier is predicting quite well. I used accuracy as a messure gvien that the predictable variable is categorical and not numeric after my converstion into integers.
+
+The model predicts the reviews in 5 classes. And each of them represents the number of stars in the reviews.
+
+From the above data we can see that our classifier correctly identified (sensitivity or true positive) the number of stars by 100%, 83%, 78%, 96% and 81% of the times respectively. When we shouldn't have predicted a number of stars we didn't (specificity or true negative) by 100%, 100%, 96%, 84% and 100% respectively. Therefore for all the classes, the model did a good estimation.
+
+## 5.Discussion
+
+My interpretation of the result is that there is some correlation between the maximum, minimum values and previous averages and the average stars the users grant in a particualr year. But the correlation becomes stronger and it is predictable with a 90% of confidence if I only consider influential users and reviews.
+This implies, in my opinion that the influential reviews are strongly related to other reviews. The user that is influenced by this review qualified the review as useful or is a fan of the reviewer because he has a high level of agreement in taste and opinions. If the qualification of useful review was given by the next user after he purchased or visit the business, there is a strong possibility that he/she agreed with the first reviewer. The fans, as per my theory will also have a strong tendency to agree and hence have the same number of stars.
+Another implication I see is that the business would do well to know who are the influential reviewers (reviewers with lots of fans and with important number of useful reviews). They could target them in special promotions to encourage them to visit their business if they did not do it and influence his followers. In case they did visit, they could obtain an updated and better review.
+
+NOTE:
+Reproducibility of work: see the markdown html version of this document that contains the code explained step by step.
